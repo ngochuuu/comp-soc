@@ -1,0 +1,245 @@
+---
+title: "Media Representations of Migration in The Guardian (2025)"
+format: html
+---
+
+Word count: 1509
+
+## Introduction
+
+Migration is one of the most politically and socially pertinent issues in contemporary societies, shaping public debate around national identity, borders, humanitarian responsibility, and state sovereignty. Media plays a central role in structuring how migration is understood by the public, not only by determining which issues receive attention, but also by shaping the language and frames through which migrants are represented.
+
+This report applies computational social science methods to analyse media representations of migration in The Guardian, a major UK news outlet with international reach. Using automated data collection via The Guardian Open Platform API, this project constructs a reproducible dataset of news articles published in 2025 that reference migration-related topics. The use of an API enables systematic and transparent access to large-scale textual data, allowing patterns in media coverage to be examined beyond the limits of manual content analysis.
+
+The analysis focuses on three interrelated dimensions of media discourse. First, it examines temporal patterns in migration coverage to assess how media attention fluctuates over time. Second, it explores discursive framing by identifying the prevalence of key terms such as “refugee,” “asylum,” “border,” and “crisis,” which are commonly associated with either humanitarian and securitised narratives of migration. Third, it analyses institutional patterns by comparing coverage across different newspaper sections, highlighting how migration is positioned within political, international, and opinion-based reporting.
+
+To support exploratory and comparative analysis, the cleaned dataset is integrated into an interactive dashboard built with R Shiny. The dashboard enables users to dynamically filter articles by time period and section, and to interactively explore framing patterns and institutional coverage. This approach enhances analytical transparency and allows insights to be generated through user-driven exploration rather than static visualisation alone.
+
+Throughout the project, principles of reproducibility and open science are prioritised. All stages of the workflow - including data collection, cleaning, analysis, and visualisation - are documented through reproducible code and structured project organisation. In addition, the report critically engages with the use of AI-assisted tools, specifically ChatGPT, reflecting on its role in supporting code development, functional programming, and problem-solving, while also acknowledging its limitations.
+
+### Dataset Overview
+
+Following data collection via the Guardian Open Platform API, the initial dataset comprised 1,146 news articles published in 2025 that contained the keyword “migrant”. The dataset included structured metadata such as publication date, section classification, headline, article body text, and word count. Prior to analysis, the dataset underwent a systematic cleaning and preparation process to ensure analytical reliability, consistency, and interpretability.
+
+The principal variables used in the analysis include:
+
+-   `article_id`: Unique article identifier
+
+-   `section`: Guardian section (e.g., Politics, World, Opinion)
+
+-   `publication_date`: Date and time of publication
+
+-   `web_title`: Article title as appears on website
+
+-   `web_url`: URL to full article
+
+-   `headline`: Article headline
+
+-   `body_text`: Full article text
+
+-   `byline`: Author byline
+
+-   `word_count`: Article word count
+
+-   `date`: Publication date (date only)
+
+-   `year`,`month`,`day_of_week`: Temporal components
+
+-   `mentions_refugee`,`mentions_asylum`,`mentions_border`,`mentions_immigration`,`mentions_crisis`: Binary indicators for discourse framing
+
+-   `article_length`: Categorical variable (Short/Medium/Long)
+
+Together, these variables support multiple analytical strategies, including temporal trend analysis, institutional comparison across editorial sections, and examination of discursive framing in media representations of migration.
+
+The Guardian was selected as the primary data source due to its prominence within the United Kingdom’s media landscape and its publicly accessible application programming interface (API). As a widely read national newspaper, the Guardian plays a significant role in shaping public discourse and political debate on migration-related issues.
+
+From a sociological perspective, media representations of migration are central to understanding how social problems are constructed and contested. News coverage influences public perceptions, legitimises particular policy responses, and frames migrants in moral, economic, or security-related terms. Analysing migration-related reporting in a major news outlet therefore provides valuable insight into the dominant narratives and institutional logics that structure public debate.
+
+### Data Collection
+
+Data was collected using the Guardian Open Platform API, an application programming interface that provides programmatic access to the Guardian’s digital news archive. Automated data collection was implemented through a set of user-defined R functions that structured the workflow into discrete, reusable components. Specifically, functions were written to (1) query the API for a given search term and time period, (2) extract relevant article-level information from the nested JSON response, and (3) iteratively collect all available pages of results.
+
+The code block below illustrates the core API request, which specifies the search query, temporal boundaries, and metadata fields returned for each article:
+
+```{r}
+#| eval: false
+#| echo: true
+
+get_guardian_articles <- function(query, from_date, to_date, page = 1) {
+  
+  base_url <- "https://content.guardianapis.com/search"
+  
+  params <- list(
+    q = query,
+    `from-date` = from_date,
+    `to-date` = to_date,
+    page = page,
+    `page-size` = 50,
+    `show-fields` = "headline,bodyText,byline,wordcount",
+    `api-key` = guardian_api_key
+  )
+  
+  response <- httr::GET(base_url, query = params)
+  jsonlite::fromJSON(httr::content(response, as = "text"), flatten = TRUE)
+}
+```
+
+This coding block shows the extraction and collection process:
+
+```{r}
+#| eval: false
+#| echo: true
+
+# Function to extract article metadata from API response
+extract_articles <- function(api_response) {
+  articles <- api_response$response$results
+  
+  clean_data <- articles %>%
+    select(
+      article_id = id,
+      section = sectionName,
+      publication_date = webPublicationDate,
+      web_title = webTitle,
+      web_url = webUrl,
+      headline = fields.headline,
+      body_text = fields.bodyText,
+      byline = fields.byline,
+      word_count = fields.wordcount
+    ) %>%
+    mutate(
+      publication_date = ymd_hms(publication_date),
+      word_count = as.numeric(word_count)
+    )
+  
+  return(clean_data)
+}
+
+# Function to collect all pages
+collect_all_articles <- function(query, from_date, to_date, max_pages = 10) {
+  all_articles <- list()
+  
+  first_page <- get_guardian_articles(query, from_date, to_date, page = 1)
+  total_pages <- min(first_page$response$pages, max_pages)
+  
+  for (page in 1:total_pages) {
+    page_data <- get_guardian_articles(query, from_date, to_date, page = page)
+    articles <- extract_articles(page_data)
+    all_articles[[page]] <- articles
+    Sys.sleep(0.5)  # Rate limiting
+  }
+  
+  final_data <- bind_rows(all_articles)
+  return(final_data)
+}
+
+# Execute data collection
+my_data <- collect_all_articles(
+  query = "migrant",
+  from_date = "2025-01-01",
+  to_date = "2025-12-31",
+  max_pages = 50
+)
+```
+
+### Data Cleaning
+
+Data cleaning was conducted using functions from the tidyverse ecosystem.
+
+```{r}
+#| eval: false
+#| echo: true
+
+# Remove duplicate articles
+my_data <- my_data %>%
+  distinct(article_id, .keep_all = TRUE)
+
+# Clean and enhance dataset
+my_data_clean <- my_data %>%
+  # Filter missing data
+  filter(!is.na(body_text), body_text != "",
+         !is.na(headline), headline != "") %>%
+  # Standardise section names
+  mutate(section = str_to_title(section)) %>%
+  # Extract temporal components
+  mutate(
+    year = year(publication_date),
+    month = month(publication_date, label = TRUE),
+    day_of_week = wday(publication_date, label = TRUE),
+    date = as_date(publication_date),
+    
+    # Create framing indicators
+    mentions_refugee = str_detect(tolower(body_text), "refugee"),
+    mentions_asylum = str_detect(tolower(body_text), "asylum"),
+    mentions_border = str_detect(tolower(body_text), "border"),
+    mentions_immigration = str_detect(tolower(body_text), "immigration"),
+    mentions_crisis = str_detect(tolower(body_text), "crisis"),
+    
+    # Categorise article length
+    article_length = case_when(
+      word_count < 500 ~ "Short",
+      word_count < 1000 ~ "Medium",
+      word_count >= 1000 ~ "Long"
+    )
+  ) %>%
+  arrange(date)
+```
+
+Initial checks confirmed the uniqueness of article identifiers and the absence of missing values such as headlines and body text. Duplicate articles were removed based on the unique article identifier.
+
+Temporal variables were derived from publication dates, enabling longitudinal analysis by year, month, and day of the week. In addition, new analytical variables were generated to operationalise sociologically meaningful concepts. Binary indicators were created to capture the presence of key migration-related framing terms (e.g. refugee, asylum, border, immigration, crisis), facilitating the analysis of discursive patterns in media coverage. Articles were also categorised by length to enable comparison across different types of journalistic output.
+
+No observations were excluded during the cleaning stage. The cleaned dataset retained all 1,146 articles, indicating that the data returned by the Guardian API were complete and internally consistent for the selected query and time period.
+
+Finally, both the raw and cleaned datasets were saved in reproducible formats (`.rds` and `.csv`). Storing intermediate outputs ensures that the entire analytical pipeline - from data collection to visualisation - can be rerun without manual intervention, supporting the principles of transparent and reproducible social science research.
+
+### Data Visualisation
+
+This project employs an interactive dashboard built using R Shiny to facilitate analysis of migration-related media coverage. Shiny was selected because it enables dynamic, user-driven interrogation of complex datasets that would be difficult to fully capture through static visualisations alone. Unlike traditional reporting formats, interactivity allows users to manipulate parameters such as time range, framing categories, and institutional sections, thereby revealing patterns that may otherwise remain obscured.
+
+The first visualisation presents the daily volume of migration-related articles published throughout 2025. This temporal representation highlights fluctuations in media attention, with observable spikes corresponding to periods of intensified coverage. Such patterns are can be associated with agenda-setting theory, which emphasises the media’s role in shaping public salience around social issues. Interactivity is particularly valuable here, as users can adjust the temporal window to examine short-term surges or longer-term trends, allowing for distinctions between episodic event-driven coverage and sustained attention.
+
+The second visualisation focuses on discursive framing, operationalised through keyword-based indicators (e.g. asylum, border, crisis, immigration, refugee). By displaying the frequency of these frames, the dashboard enables comparison between different narrative constructions of migration. The prominence of administrative and political frames relative to humanitarian ones reflects broader processes of securitisation, whereby migration is framed primarily as a governance or control issue. An interactive toggle between absolute counts and proportional representation further supports nuanced interpretation, allowing users to assess both prevalence and relative emphasis.
+
+The third visualisation displays the distribution of migration-related articles across editorial categories within The Guardian, such as Politics, World News, Opinion, and UK News. Rather than measuring volume alone, this visualisation captures how migration is institutionally situated within the newspaper’s organisational structure, revealing where and how the issue is discursively positioned.
+
+### Critical Engagement
+
+Throughout this project, ChatGPT was used to support specific technical tasks in data collection, cleaning, and dashboard development. Its primary contributions included structuring functional programming approaches for API pagination, simplifying data wrangling pipelines, and providing guidance on Shiny reactive logic.
+
+One concrete example involved refining the data cleaning workflow. ChatGPT helped consolidate multiple filter operations into a single, more efficient pipeline:
+
+Before:
+
+```{r}
+#| eval: false
+#| echo: true
+
+my_data_clean <- my_data %>%
+  filter(!is.na(body_text)) %>%
+  filter(body_text != "") %>%
+  filter(!is.na(headline)) %>%
+  filter(headline != "")
+```
+
+After:
+
+```{r}
+#| eval: false
+#| echo: true
+
+my_data_clean <- my_data %>%
+  filter(!is.na(body_text), body_text != "",
+         !is.na(headline), headline != "")
+```
+
+However, ChatGPT had notable limitations. It occasionally recommended unnecessary complexity, such as installing additional packages (`here`, `usethis`) that added overhead without meaningful benefit to this project. More critically, ChatGPT could not determine the sociological significance of variables or visualisations. For example, while it generated code for framing indicators, it could not suggest why terms like "refugee" versus "border" matter theoretically. The selection of analytically meaningful variables and the interpretation of patterns required my own engagement with framing theory and media sociology.
+
+ChatGPT functioned as an assistant, not a replacement. It accelerated syntax-related tasks, but required continuous critical evaluation and theoretical grounding.
+
+### Conclusion
+
+This project demonstrates the application of computational methods to media sociology, using automated data collection and interactive visualisation to examine migration coverage in The Guardian during 2025. Through systematic analysis of 1,146 articles, the study reveals temporal patterns in media attention, discursive framing strategies, and institutional positioning of migration content.
+
+The interactive dashboard facilitates exploratory analysis, allowing patterns to emerge through user-driven interrogation of the data. Methodologically, the project underscores the importance of transparency and reproducibility in computational research. By documenting all stages of the analytical pipeline, this work provides a replicable template for future media analysis.
+
+The critical engagement with AI-assisted tools highlights the ongoing need for theoretical grounding and human judgment in computational social science, particularly when interpreting sociologically meaningful patterns in data.
